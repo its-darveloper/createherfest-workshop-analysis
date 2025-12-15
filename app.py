@@ -2,20 +2,26 @@
 """
 #75HER Workshop Facilitator Report Dashboard
 - Enhanced UX/UI with improved accessibility, visual hierarchy, and data humanist approach
+- **CLOUD READY: Uses st.secrets for Google Sheets authentication.**
 """
 
 import streamlit as st
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+# NOTE: oauth2client is no longer strictly needed for st.secrets method, 
+# but kept here if other libraries rely on it. gspread handles the dict auth.
+from oauth2client.service_account import ServiceAccountCredentials 
 from datetime import datetime
 
 # =========================
 # CONFIG
 # =========================
 
-CREDENTIALS_FILE = "credentials.json"
-SHEET_NAME = "75HER Workshop Survey Responses"
+# Removed CREDENTIALS_FILE = "credentials.json"
+# SHEET_NAME will now be read from st.secrets or defined as a fallback if not using secrets.
+# Using SHEET_NAME from secrets is cleaner, but define here for local testing compatibility
+# if you prefer a local fallback for the sheet name itself.
+# SHEET_NAME = "75HER Workshop Survey Responses" # If you want a hardcoded fallback
 
 # ==================================
 # CSS - ENHANCED DARK MODE
@@ -1126,25 +1132,36 @@ div[data-testid="stVerticalBlock"] > div:nth-child(1) {
 """
 
 # =========================
-# DATA LOADER
+# DATA LOADER (Refactored for st.secrets)
 # =========================
 
 @st.cache_data
 def load_data():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
+    
+    # 1. Attempt to connect using st.secrets (Cloud-Ready Method)
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_name(
-            CREDENTIALS_FILE, scope
-        )
-        client = gspread.authorize(creds)
-        sheet = client.open(SHEET_NAME).sheet1
+        # Read credentials from the environment variable (Streamlit Secrets)
+        creds = st.secrets["gcp_service_account"]
+        
+        # Authenticate using the dictionary data
+        client = gspread.service_account_from_dict(creds)
+        
+        # Read the sheet name, preferring st.secrets["SHEET_NAME"]
+        try:
+            sheet_name = st.secrets["SHEET_NAME"]
+        except KeyError:
+            # Fallback to hardcoded name if SHEET_NAME wasn't explicitly set in secrets
+            sheet_name = "75HER Workshop Survey Responses"
+
+        sheet = client.open(sheet_name).sheet1
         data = sheet.get_all_records()
         return pd.DataFrame(data)
-    except FileNotFoundError:
-        st.error("Credential file not found. Using dummy data for demonstration.")
+
+    except (KeyError, Exception) as e:
+        # 2. If secrets fail or are missing, load dummy data and raise a warning
+        st.warning(f"Could not connect to Google Sheets using st.secrets. Error: {e.__class__.__name__}. Displaying dummy data for demonstration.")
+        
+        # Dummy data for demonstration
         data = {
             'Which session did you attend?': ['Data Viz Fundamentals', 'Data Viz Fundamentals', 'Advanced Python', 'Advanced Python'],
             'How confident do you feel implementing what you learned today? ': [5, 4, 3, 5],
@@ -1155,11 +1172,10 @@ def load_data():
             "What did the facilitator do especially well? Any suggestions for improvement?": ["Very clear examples and great energy.", "I wish we had more time for Q&A.", "Too fast for me, slow down!", "Pacing was spot-on. Solid content."],
             "What's ONE thing you'll try this week based on today's workshop?": ["Apply the Gestalt principles to my next report.", "Refactor my old Python script with new functions.", "Nothing yet, need to review my notes.", "Build a new dashboard with Streamlit."]
         }
-        df = pd.DataFrame(data)
-        return df
+        return pd.DataFrame(data)
 
 # =========================
-# METRIC CALCULATION
+# METRIC CALCULATION (No changes)
 # =========================
 
 def calculate_metrics(df_w: pd.DataFrame) -> dict:
@@ -1226,7 +1242,7 @@ def calculate_metrics(df_w: pd.DataFrame) -> dict:
     }
 
 # =========================
-# RENDER FUNCTIONS
+# RENDER FUNCTIONS (No changes)
 # =========================
 
 def render_hero_card(metrics: dict, workshop_name: str, total_responses: int):
@@ -1237,7 +1253,6 @@ def render_hero_card(metrics: dict, workshop_name: str, total_responses: int):
         + (metrics["pace_just"] / 100) * 25
     )
 
-    # Enhanced recommendation logic
     if metrics["confidence"] < 3.5 and metrics["hands_created"] < 40:
         recommendation = "Add more structured, guided, hands-on time with a simpler, clear deliverable."
     elif metrics["pace_fast"] > 30:
@@ -1509,7 +1524,7 @@ def main():
     bg_col = "Your background in this topic:"
     
     if df.empty or workshop_col not in df.columns:
-        st.error("Data could not be loaded or is empty. Please check the credentials and sheet name.")
+        st.error("Data could not be loaded or is empty. Please check the data source and configuration.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -1559,7 +1574,7 @@ def main():
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
     # Metric Cards
-    st.markdown('## 📊 Core Metric Analysis')
+    st.markdown('<h2>📊 Core Metric Analysis</h2>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -1573,7 +1588,7 @@ def main():
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
     # View Toggle - Move Higher
-    st.markdown('## 💬 Participant Feedback')
+    st.markdown('<h2>💬 Participant Feedback</h2>', unsafe_allow_html=True)
     
     view_mode = st.radio(
         "Response View",
